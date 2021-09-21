@@ -54,6 +54,10 @@ export class Store<T extends BaseNode> {
     return this.nodes.find((node) => node.id === id);
   }
 
+  retrieveEdgesForNode(id: ID): NodeEdge[] {
+    return this.edges.filter((edge) => edge.startNode === id || edge.endNode === id);
+  }
+
   updateNode(node: T): void {
     const index = this.getNodeIndex(node.id);
     if (index === -1) return;

@@ -15,14 +15,18 @@ export class Canvas {
   size!: Size;
   store = new Store<CanvasNode>();
   offset: Offset = { x: 0, y: 0 };
+  rotation = 0;
   scale = 1;
-  action: PointerAction = PointerAction.NONE;
-  lastOffset?: Offset;
+  action: Action = Action.NONE;
+  start?: Offset;
+  end?: Offset;
   ctx: CanvasRenderingContext2D;
-  selected = new Array<ID>();
-  hovered = new Array<ID>();
+  selectedNodes = new Array<ID>();
+  selectedEdges = new Array<ID>();
+  hoveredNodes = new Array<ID>();
   matrix = [1, 0, 0, 1, 0, 0];
   invMatrix = [1, 0, 0, 1];
+  shiftPressed = false;
   onUpdate = () => {};
 
   init() {
@@ -46,6 +50,12 @@ export class Canvas {
       false
     );
     this.canvas.addEventListener("mouseup", (e) => this.onMouseUp(e), false);
+    window.addEventListener("keydown", (e) => {
+      this.shiftPressed = e.shiftKey;
+    });
+    window.addEventListener("keyup", (e) => {
+      this.shiftPressed = false;
+    });
   }
 
   import(value: string) {
@@ -55,6 +65,12 @@ export class Canvas {
   deleteNode(node: CanvasNode) {
     this.store.deleteNode(node.id);
     this.clear();
+  }
+
+  deleteEdge(edge: NodeEdge) {
+    this.store.deleteEdge(edge.id);
+    this.clearLinks();
+    this.onUpdate();
   }
 
   resize(size?: Size) {
@@ -71,46 +87,71 @@ export class Canvas {
   onWheel(e: WheelEvent) {
     e.preventDefault();
     if (e.ctrlKey) {
-      this.action = PointerAction.ZOOM;
+      this.action = Action.ZOOM;
       this.scale -= e.deltaY * 0.01;
     } else {
-      this.action = PointerAction.PAN;
+      this.action = Action.PAN;
       this.offset.x -= e.deltaX * 2;
       this.offset.y -= e.deltaY * 2;
     }
     this.onUpdate();
-    this.action = PointerAction.NONE;
+    this.action = Action.NONE;
   }
 
   onMouseDown(e: MouseEvent) {
-    this.lastOffset = {
+    this.start = {
       x: e.offsetX,
       y: e.offsetY,
     };
-    this.action = PointerAction.MOVE;
+    this.end = {
+      x: e.offsetX,
+      y: e.offsetY,
+    };
+    this.action = this.shiftPressed ? Action.LINK : Action.MOVE;
     this.clear();
-    const selection = this.getSelection(this.lastOffset);
-    this.selected.push(...selection);
+    const selection = this.getSelection(this.start);
+    this.selectedNodes.push(...selection);
     this.onUpdate();
   }
 
   onMouseUp(_: MouseEvent) {
-    this.lastOffset = undefined;
-    this.action = PointerAction.NONE;
+    if (this.action === Action.LINK) {
+      const startNode = this.getSelection(this.start!);
+      const endNode = this.getSelection(this.end!);
+      if (startNode.length > 0 && endNode.length > 0) {
+        const start = this.store.retrieveNode(startNode[startNode.length - 1]);
+        const end = this.store.retrieveNode(endNode[endNode.length - 1]);
+        if (start && end) {
+          this.store.linkNodes(start, end, "simple");
+        }
+      }
+    }
+    this.start = undefined;
+    this.end = undefined;
+    this.action = Action.NONE;
   }
 
   onMouseMove(e: MouseEvent) {
-    if (this.action === PointerAction.MOVE && this.selected.length > 0) {
-      const delta = {
-        x: e.offsetX - this.lastOffset!.x,
-        y: e.offsetY - this.lastOffset!.y,
-      };
-      const node = this.selectedNode();
-      if (node) this.moveNode(node, delta);
-      this.lastOffset = {
-        x: e.offsetX,
-        y: e.offsetY,
-      };
+    if (this.selectedNodes.length > 0) {
+      console.log(this.action);
+      if (this.action === Action.MOVE) {
+        const delta = {
+          x: e.offsetX - this.start!.x,
+          y: e.offsetY - this.start!.y,
+        };
+        const node = this.selectedNode();
+        if (node) this.moveNode(node, delta);
+        this.start = {
+          x: e.offsetX,
+          y: e.offsetY,
+        };
+      }
+      if (this.action === Action.LINK) {
+        this.end = {
+          x: e.offsetX,
+          y: e.offsetY,
+        };
+      }
     } else {
       this.checkHover({
         x: e.offsetX,
@@ -120,9 +161,9 @@ export class Canvas {
   }
 
   checkHover(offset: Offset) {
-    this.hovered.splice(0, this.hovered.length);
+    this.hoveredNodes.splice(0, this.hoveredNodes.length);
     const selection = this.getSelection(offset);
-    this.hovered.push(...selection);
+    this.hoveredNodes.push(...selection);
     const node = this.hoveredNode();
     if (node) {
       this.canvas.style.cursor = "pointer";
@@ -138,21 +179,26 @@ export class Canvas {
   }
 
   selectedNode(): CanvasNode | undefined {
-    if (this.selected.length === 0) return;
-    const id = this.selected[this.selected.length - 1];
+    if (this.selectedNodes.length === 0) return;
+    const id = this.selectedNodes[this.selectedNodes.length - 1];
     const node = this.store.retrieveNode(id);
     return node;
   }
 
   hoveredNode(): CanvasNode | undefined {
-    if (this.hovered.length === 0) return;
-    const id = this.hovered[this.hovered.length - 1];
+    if (this.hoveredNodes.length === 0) return;
+    const id = this.hoveredNodes[this.hoveredNodes.length - 1];
     const node = this.store.retrieveNode(id);
     return node;
   }
 
   clear() {
-    this.selected.splice(0, this.selected.length);
+    this.selectedNodes.splice(0, this.selectedNodes.length);
+    this.onUpdate();
+  }
+
+  clearLinks() {
+    this.selectedEdges.splice(0, this.selectedEdges.length);
     this.onUpdate();
   }
 
@@ -188,20 +234,18 @@ export class Canvas {
 
     this.renderBackground();
 
-    this.createMatrix(this.offset.x, this.offset.y, this.scale, 0);
-    const m = this.matrix;
-    this.ctx.setTransform(m[0], m[1], m[2], m[3], m[4], m[5]);
+    this.updateMatrix();
 
     this.renderEdges();
     this.renderNodes();
+
+    this.renderLink();
   }
 
-  private renderBackground() {
-    this.ctx.save();
-    this.ctx.fillStyle = "whitesmoke";
-    this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
-
-    this.ctx.restore();
+  updateMatrix() {
+    this.createMatrix(this.offset.x, this.offset.y, this.scale, this.rotation);
+    const m = this.matrix;
+    this.ctx.setTransform(m[0], m[1], m[2], m[3], m[4], m[5]);
   }
 
   // Pulled from here: https://stackoverflow.com/a/34598847/7303311
@@ -231,6 +275,28 @@ export class Canvas {
     };
   }
 
+  private renderLink() {
+    if (this.action === Action.LINK) {
+      this.scopedPaint((ctx) => {
+        ctx.beginPath();
+        ctx.strokeStyle = "red";
+        const localStart = this.toWorld(this.start!.x, this.start!.y);
+        const localEnd = this.toWorld(this.end!.x, this.end!.y);
+        ctx.moveTo(localStart.x, localStart.y);
+        ctx.lineTo(localEnd.x, localEnd.y);
+        ctx.stroke();
+      });
+    }
+  }
+
+  private renderBackground() {
+    this.ctx.save();
+    this.ctx.fillStyle = "whitesmoke";
+    this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+    this.ctx.restore();
+  }
+
   private renderNodes() {
     for (const node of this.store.nodes) {
       this.renderNode(node);
@@ -245,7 +311,7 @@ export class Canvas {
 
   private renderNode(node: CanvasNode) {
     this.ctx.save();
-    // this.prepareCanvas();
+
     this.ctx.moveTo(node.x, node.y);
 
     const isSelected = this.selectedNode()?.id === node.id;
@@ -271,26 +337,24 @@ export class Canvas {
   }
 
   private renderEdge(edge: NodeEdge) {
-    this.ctx.save();
-    // this.prepareCanvas();
-    const startNode = this.store.retrieveNode(edge.startNode)!;
-    const endNode = this.store.retrieveNode(edge.endNode)!;
-    const start = {
-      x: startNode.x + startNode.width / 2,
-      y: startNode.y + startNode.height / 2,
-      width: startNode.width,
-      height: startNode.height,
-    };
-    const end = {
-      x: endNode.x + endNode.width / 2,
-      y: endNode.y + endNode.height / 2,
-      width: endNode.width,
-      height: endNode.height,
-    };
-    // Draw square bezier curve between points
     this.scopedPaint((ctx) => {
+      const isSelected = this.selectedEdges.includes(edge.id);
+      const startNode = this.store.retrieveNode(edge.startNode)!;
+      const endNode = this.store.retrieveNode(edge.endNode)!;
+      const start = {
+        x: startNode.x + startNode.width / 2,
+        y: startNode.y + startNode.height / 2,
+        width: startNode.width,
+        height: startNode.height,
+      };
+      const end = {
+        x: endNode.x + endNode.width / 2,
+        y: endNode.y + endNode.height / 2,
+        width: endNode.width,
+        height: endNode.height,
+      };
       ctx.beginPath();
-      ctx.strokeStyle = "black";
+      ctx.strokeStyle = isSelected ? "purple" : "black";
       ctx.moveTo(start.x, start.y);
       ctx.bezierCurveTo(
         start.x + start.width / 2,
@@ -302,7 +366,6 @@ export class Canvas {
       );
       ctx.stroke();
     });
-    this.ctx.restore();
   }
 
   private scopedPaint(action: (ctx: CanvasRenderingContext2D) => void) {
@@ -312,11 +375,12 @@ export class Canvas {
   }
 }
 
-enum PointerAction {
+enum Action {
   NONE,
   ZOOM,
   PAN,
   MOVE,
+  LINK,
 }
 
 interface Offset {

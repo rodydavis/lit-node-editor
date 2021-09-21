@@ -43,6 +43,11 @@ export class NodeEditor extends LitElement {
       background-color: red;
       color: white;
     }
+    #links > span {
+      padding-left: 10px;
+      font-size: 0.9em;
+      font-weight: bold;
+    }
   `;
 
   render() {
@@ -90,6 +95,17 @@ export class NodeEditor extends LitElement {
           />
         </div>
         <div class="property">
+          <label>Rotation</label>
+          <input
+            type="number"
+            .value=${this.editor.rotation.toString()}
+            step=".1"
+            @change=${(e: any) => {
+              this.editor.rotation = Number(e.target.value);
+            }}
+          />
+        </div>
+        <div class="property">
           <label>Offset x</label>
           <input
             type="number"
@@ -115,7 +131,7 @@ export class NodeEditor extends LitElement {
           <button
             @click=${() => {
               const node = this.addRandomNode();
-              this.editor.selected.push(node.id);
+              this.editor.selectedNodes.push(node.id);
               this.requestUpdate();
             }}
           >
@@ -140,6 +156,7 @@ export class NodeEditor extends LitElement {
         </div>
       </div>`;
     }
+    const links = this.editor.store.retrieveEdgesForNode(node.id);
     return html`
       <div class="property">
         <label>Name</label>
@@ -184,6 +201,41 @@ export class NodeEditor extends LitElement {
             this.editor.store.updateNode(node);
           }}
         />
+      </div>
+      <div id="links">
+        <span>Links</span>
+        ${links.map((edge) => {
+          return html`<div class="property">
+            <span>[${edge.startNode}-${edge.endNode}]</span>
+            <input
+              type="text"
+              .value=${edge.name}
+              @change=${(e: any) => {
+                edge.name = e.target.value;
+                this.editor.store.updateEdge(edge);
+              }}
+            />
+            <button
+              @click=${() => {
+                this.editor.clearLinks();
+                this.requestUpdate();
+                this.editor.selectedEdges.push(edge.id);
+              }}
+            >
+              Select link
+            </button>
+            <button
+              class="destructive"
+              @click=${() => {
+                if (confirm("Are you sure?")) {
+                  this.editor.deleteEdge(edge);
+                }
+              }}
+            >
+              Delete link
+            </button>
+          </div>`;
+        })}
       </div>
       <div class="property">
         <button
