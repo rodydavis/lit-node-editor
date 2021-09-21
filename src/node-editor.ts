@@ -39,6 +39,10 @@ export class NodeEditor extends LitElement {
       font-weight: bold;
       padding: 10px;
     }
+    .destructive {
+      background-color: red;
+      color: white;
+    }
   `;
 
   render() {
@@ -180,6 +184,18 @@ export class NodeEditor extends LitElement {
             this.editor.store.updateNode(node);
           }}
         />
+      </div>
+      <div class="property">
+        <button
+          class="destructive"
+          @click=${() => {
+            if (confirm("Are you sure?")) {
+              this.editor.deleteNode(node);
+            }
+          }}
+        >
+          Delete node
+        </button>
       </div>
     `;
   }

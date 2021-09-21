@@ -52,6 +52,11 @@ export class Canvas {
     this.store = Store.fromJson<CanvasNode>(value);
   }
 
+  deleteNode(node: CanvasNode) {
+    this.store.deleteNode(node.id);
+    this.clear();
+  }
+
   resize(size?: Size) {
     this.size = size ?? {
       width: window.innerWidth,
@@ -199,6 +204,7 @@ export class Canvas {
     this.ctx.restore();
   }
 
+  // Pulled from here: https://stackoverflow.com/a/34598847/7303311
   createMatrix(x: number, y: number, scale: number, rotate: number) {
     const m = this.matrix;
     const im = this.invMatrix;
@@ -213,6 +219,7 @@ export class Canvas {
     im[3] = m[0] / cross;
   }
 
+  // Pulled from here: https://stackoverflow.com/a/34598847/7303311
   toWorld(x: number, y: number) {
     let xx, yy, m;
     m = this.invMatrix;
@@ -295,7 +302,6 @@ export class Canvas {
       );
       ctx.stroke();
     });
-
     this.ctx.restore();
   }
 

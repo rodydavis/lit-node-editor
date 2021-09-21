@@ -64,6 +64,14 @@ export class Store<T extends BaseNode> {
     const index = this.getNodeIndex(id);
     if (index === -1) return;
     this.nodes.splice(index, 1);
+
+    // Delete connected edges
+    this.edges = this.edges.filter((edge) => {
+      if (edge.startNode === id || edge.endNode === id) {
+        return false;
+      }
+      return true;
+    });
   }
 
   private getEdgeIndex(id: ID): number {
