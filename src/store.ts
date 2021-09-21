@@ -55,7 +55,9 @@ export class Store<T extends BaseNode> {
   }
 
   retrieveEdgesForNode(id: ID): NodeEdge[] {
-    return this.edges.filter((edge) => edge.startNode === id || edge.endNode === id);
+    return this.edges.filter(
+      (edge) => edge.startNode === id || edge.endNode === id
+    );
   }
 
   updateNode(node: T): void {
@@ -70,12 +72,10 @@ export class Store<T extends BaseNode> {
     this.nodes.splice(index, 1);
 
     // Delete connected edges
-    this.edges = this.edges.filter((edge) => {
-      if (edge.startNode === id || edge.endNode === id) {
-        return false;
-      }
-      return true;
-    });
+    const nodeEdges = this.retrieveEdgesForNode(id);
+    for (const edge of nodeEdges) {
+      this.deleteEdge(edge.id);
+    }
   }
 
   private getEdgeIndex(id: ID): number {
