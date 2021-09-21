@@ -1,6 +1,8 @@
 import "./styles.css";
 
-import { LitElement, customElement, html, css } from "lit-element";
+import { html, css, LitElement } from "lit";
+import { customElement } from "lit/decorators.js";
+
 import { CanvasNode, Canvas } from "./canvas";
 
 const PROPERTY_WIDTH = 200;

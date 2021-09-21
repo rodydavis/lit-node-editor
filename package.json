@@ -11,7 +11,7 @@
     "serve": "tsc && vite preview"
   },
   "dependencies": {
-    "lit-element": "^2.4.0"
+    "lit": "*"
   },
   "devDependencies": {
     "@types/node": "^16.9.4",
