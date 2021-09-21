@@ -33,9 +33,7 @@ export class Canvas {
     this.render();
     this.canvas.addEventListener(
       "contextmenu",
-      function (e) {
-        e.preventDefault();
-      },
+      (e) => e.preventDefault(),
       false
     );
     this.canvas.addEventListener("wheel", (e) => this.onWheel(e), false);
