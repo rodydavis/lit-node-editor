@@ -300,6 +300,8 @@ part of the polymer project is also subject to an additional IP rights grant
 found at http://polymer.github.io/PATENTS.txt
 */ne.styles=((e,...t)=>{const s=t.reduce(((t,s,i)=>t+(e=>{if(e instanceof Y)return e.cssText;if("number"==typeof e)return e;throw new Error(`Value passed to 'css' function must be a 'css' function result: ${e}. Use 'unsafeCSS' to pass non-literal values, but\n            take care to ensure page security.`)})(s)+e[i+1]),e[0]);return new Y(s,K)})`
     main {
+      height: 100vh;
+      width: 100%;
       display: flex;
       flex-direction: row;
     }
@@ -310,7 +312,7 @@ found at http://polymer.github.io/PATENTS.txt
       width: ${200}px;
       display: flex;
       flex-direction: column;
-      overflow-y: auto;
+      overflow-y: scroll;
       background-color: #eee;
     }
     .property {
