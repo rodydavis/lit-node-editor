@@ -16,6 +16,8 @@ export class NodeEditor extends LitElement {
 
   static styles = css`
     main {
+      height: 100vh;
+      width: 100%;
       display: flex;
       flex-direction: row;
     }
@@ -26,7 +28,7 @@ export class NodeEditor extends LitElement {
       width: ${PROPERTY_WIDTH}px;
       display: flex;
       flex-direction: column;
-      overflow-y: auto;
+      overflow-y: scroll;
       background-color: #eee;
     }
     .property {
