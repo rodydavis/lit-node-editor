@@ -133,7 +133,6 @@ export class Canvas {
 
   onMouseMove(e: MouseEvent) {
     if (this.selectedNodes.length > 0) {
-      console.log(this.action);
       if (this.action === Action.MOVE) {
         const delta = {
           x: e.offsetX - this.start!.x,
