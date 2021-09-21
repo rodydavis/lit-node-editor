@@ -53,7 +53,7 @@ export class Canvas {
     window.addEventListener("keydown", (e) => {
       this.shiftPressed = e.shiftKey;
     });
-    window.addEventListener("keyup", (e) => {
+    window.addEventListener("keyup", (_) => {
       this.shiftPressed = false;
     });
   }
