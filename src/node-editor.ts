@@ -57,17 +57,101 @@ export class NodeEditor extends LitElement {
   render() {
     return html`<main>
       <div id="output">${this.editor.canvas}</div>
-      <div id="properties">
-        <span class="title">Properties</span>
-        ${this.renderProperties()}
-      </div>
+      <div id="properties">${this.renderProperties()}</div>
     </main>`;
   }
 
   renderProperties() {
-    const node = this.editor.selectedNode();
-    if (!node) {
-      return html`<div>
+    const node = this.editor.topSelection();
+    if (node?.type === "node") {
+      return html`
+        <span class="title">Node</span>
+        <div class="property">
+          <label>Name</label>
+          <input
+            type="text"
+            .value=${node.name}
+            @change=${(e: any) => {
+              node.name = e.target.value;
+              this.editor.store.updateNode(node);
+            }}
+          />
+        </div>
+        <div class="property">
+          <label>Background Color</label>
+          <input
+            type="color"
+            .value=${node.backgroundColor ?? "#FFFFFF"}
+            @change=${(e: any) => {
+              node.backgroundColor = e.target.value;
+              this.editor.store.updateNode(node);
+            }}
+          />
+        </div>
+        <div class="property">
+          <label>Width</label>
+          <input
+            type="number"
+            .value=${node.width.toString()}
+            @change=${(e: any) => {
+              node.width = Number(e.target.value);
+              this.editor.store.updateNode(node);
+            }}
+          />
+        </div>
+        <div class="property">
+          <label>Height</label>
+          <input
+            type="number"
+            .value=${node.height.toString()}
+            @change=${(e: any) => {
+              node.height = Number(e.target.value);
+              this.editor.store.updateNode(node);
+            }}
+          />
+        </div>
+        <div class="property">
+          <button
+            class="destructive"
+            @click=${() => {
+              if (confirm("Are you sure?")) {
+                this.editor.deleteNode(node);
+              }
+            }}
+          >
+            Delete node
+          </button>
+        </div>
+      `;
+    }
+    if (node?.type === "edge") {
+      return html` <span class="title">Edge</span>
+        <div class="property">
+          <label>Name</label>
+          <input
+            type="text"
+            .value=${node.name}
+            @change=${(e: any) => {
+              node.name = e.target.value;
+              this.editor.store.updateEdge(node);
+            }}
+          />
+        </div>
+        <div class="property">
+          <button
+            class="destructive"
+            @click=${() => {
+              if (confirm("Are you sure?")) {
+                this.editor.deleteEdge(node);
+              }
+            }}
+          >
+            Delete node
+          </button>
+        </div>`;
+    }
+    return html` <span class="title">Editor</span>
+      <div>
         <div class="property">
           <label>Import JSON</label>
           <input
@@ -159,101 +243,6 @@ export class NodeEditor extends LitElement {
           </button>
         </div>
       </div>`;
-    }
-    const links = this.editor.store.retrieveEdgesForNode(node.id);
-    return html`
-      <div class="property">
-        <label>Name</label>
-        <input
-          type="text"
-          .value=${node.name}
-          @change=${(e: any) => {
-            node.name = e.target.value;
-            this.editor.store.updateNode(node);
-          }}
-        />
-      </div>
-      <div class="property">
-        <label>Background Color</label>
-        <input
-          type="color"
-          .value=${node.backgroundColor ?? "#FFFFFF"}
-          @change=${(e: any) => {
-            node.backgroundColor = e.target.value;
-            this.editor.store.updateNode(node);
-          }}
-        />
-      </div>
-      <div class="property">
-        <label>Width</label>
-        <input
-          type="number"
-          .value=${node.width.toString()}
-          @change=${(e: any) => {
-            node.width = Number(e.target.value);
-            this.editor.store.updateNode(node);
-          }}
-        />
-      </div>
-      <div class="property">
-        <label>Height</label>
-        <input
-          type="number"
-          .value=${node.height.toString()}
-          @change=${(e: any) => {
-            node.height = Number(e.target.value);
-            this.editor.store.updateNode(node);
-          }}
-        />
-      </div>
-      <div id="links">
-        <span>Links</span>
-        ${links.map((edge) => {
-          return html`<div class="property">
-            <span>[${edge.startNode}-${edge.endNode}]</span>
-            <input
-              type="text"
-              .value=${edge.name}
-              @change=${(e: any) => {
-                edge.name = e.target.value;
-                this.editor.store.updateEdge(edge);
-              }}
-            />
-            <button
-              @click=${() => {
-                this.editor.clearLinks();
-                this.requestUpdate();
-                this.editor.selectedEdges.push(edge.id);
-              }}
-            >
-              Select link
-            </button>
-            <button
-              class="destructive"
-              @click=${() => {
-                if (confirm("Are you sure?")) {
-                  this.editor.deleteEdge(edge);
-                }
-              }}
-            >
-              Delete link
-            </button>
-          </div>`;
-        })}
-      </div>
-      <div class="property">
-        <button
-          class="destructive"
-          @click=${() => {
-            if (confirm("Are you sure?")) {
-              this.editor.deleteNode(node);
-            }
-          }}
-        >
-          Delete node
-        </button>
-      </div>
-    `;
   }
 
   firstUpdated() {
@@ -290,6 +279,7 @@ export class NodeEditor extends LitElement {
       y: Math.random() * this.editor.canvas.height,
       width: 100,
       height: 100,
+      type: "node",
     };
     this.editor.store.createNode(node);
     return node;

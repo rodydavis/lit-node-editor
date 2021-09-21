@@ -114,6 +114,7 @@ export class Store<T extends BaseNode> {
       startNode: start.id,
       endNode: end.id,
       name,
+      type: "edge",
     });
   }
 }
@@ -124,6 +125,7 @@ export class Store<T extends BaseNode> {
 export interface NodeEdge extends BaseNode {
   startNode: ID;
   endNode: ID;
+  type: "edge";
 }
 
 /**
@@ -132,6 +134,7 @@ export interface NodeEdge extends BaseNode {
 export interface BaseNode {
   id: ID;
   name: string;
+  readonly type: "node" | "edge";
 }
 
 function generateRandomId(): string {

@@ -24,6 +24,7 @@ export class Canvas {
   selectedNodes = new Array<ID>();
   selectedEdges = new Array<ID>();
   hoveredNodes = new Array<ID>();
+  hoveredEdges = new Array<ID>();
   matrix = [1, 0, 0, 1, 0, 0];
   invMatrix = [1, 0, 0, 1];
   shiftPressed = false;
@@ -108,14 +109,15 @@ export class Canvas {
     this.action = this.shiftPressed ? Action.LINK : Action.MOVE;
     this.clear();
     const selection = this.getSelection(this.start);
-    this.selectedNodes.push(...selection);
+    this.selectedNodes.push(...selection.nodes);
+    this.selectedEdges.push(...selection.edges);
     this.onUpdate();
   }
 
   onMouseUp(_: MouseEvent) {
     if (this.action === Action.LINK) {
-      const startNode = this.getSelection(this.start!);
-      const endNode = this.getSelection(this.end!);
+      const startNode = this.getSelection(this.start!).nodes;
+      const endNode = this.getSelection(this.end!).nodes;
       if (startNode.length > 0 && endNode.length > 0) {
         const start = this.store.retrieveNode(startNode[startNode.length - 1]);
         const end = this.store.retrieveNode(endNode[endNode.length - 1]);
@@ -130,14 +132,20 @@ export class Canvas {
   }
 
   onMouseMove(e: MouseEvent) {
+    this.checkHover({
+      x: e.offsetX,
+      y: e.offsetY,
+    });
     if (this.selectedNodes.length > 0) {
       if (this.action === Action.MOVE) {
         const delta = {
           x: e.offsetX - this.start!.x,
           y: e.offsetY - this.start!.y,
         };
-        const node = this.selectedNode();
-        if (node) this.moveNode(node, delta);
+        const selectedItem = this.topSelection();
+        if (selectedItem?.type === "node") {
+          this.moveNode(selectedItem, delta);
+        }
         this.start = {
           x: e.offsetX,
           y: e.offsetY,
@@ -149,20 +157,19 @@ export class Canvas {
           y: e.offsetY,
         };
       }
-    } else {
-      this.checkHover({
-        x: e.offsetX,
-        y: e.offsetY,
-      });
     }
   }
 
   checkHover(offset: Offset) {
     this.hoveredNodes.splice(0, this.hoveredNodes.length);
+    this.hoveredEdges.splice(0, this.hoveredEdges.length);
+
     const selection = this.getSelection(offset);
-    this.hoveredNodes.push(...selection);
-    const node = this.hoveredNode();
-    if (node) {
+    this.hoveredNodes.push(...selection.nodes);
+    this.hoveredEdges.push(...selection.edges);
+    
+    const topHoveredItem = this.topHovered();
+    if (topHoveredItem) {
       this.canvas.style.cursor = "pointer";
     } else {
       this.canvas.style.cursor = "default";
@@ -175,22 +182,33 @@ export class Canvas {
     this.store.updateNode(node);
   }
 
-  selectedNode(): CanvasNode | undefined {
-    if (this.selectedNodes.length === 0) return;
-    const id = this.selectedNodes[this.selectedNodes.length - 1];
-    const node = this.store.retrieveNode(id);
-    return node;
+  topSelection(): CanvasNode | NodeEdge | undefined {
+    if (this.selectedNodes.length > 0) {
+      const id = this.selectedNodes[this.selectedNodes.length - 1];
+      return this.store.retrieveNode(id);
+    }
+    if (this.selectedEdges.length > 0) {
+      const id = this.selectedEdges[this.selectedEdges.length - 1];
+      return this.store.retrieveEdge(id);
+    }
+    return undefined;
   }
 
-  hoveredNode(): CanvasNode | undefined {
-    if (this.hoveredNodes.length === 0) return;
-    const id = this.hoveredNodes[this.hoveredNodes.length - 1];
-    const node = this.store.retrieveNode(id);
-    return node;
+  topHovered(): CanvasNode | NodeEdge | undefined {
+    if (this.hoveredNodes.length > 0) {
+      const id = this.hoveredNodes[this.hoveredNodes.length - 1];
+      return this.store.retrieveNode(id);
+    }
+    if (this.hoveredEdges.length > 0) {
+      const id = this.hoveredEdges[this.hoveredEdges.length - 1];
+      return this.store.retrieveEdge(id);
+    }
+    return undefined;
   }
 
   clear() {
     this.selectedNodes.splice(0, this.selectedNodes.length);
+    this.selectedEdges.splice(0, this.selectedEdges.length);
     this.onUpdate();
   }
 
@@ -200,7 +218,8 @@ export class Canvas {
   }
 
   getSelection(target: Offset) {
-    const items = new Array<ID>();
+    const nodes = new Array<ID>();
+    const edges = new Array<ID>();
 
     // Get the local offset
     const localOffset = this.toWorld(target.x, target.y);
@@ -213,11 +232,32 @@ export class Canvas {
         localOffset.y >= node.y &&
         localOffset.y <= node.y + node.height
       ) {
-        items.push(node.id);
+        nodes.push(node.id);
       }
     }
-
-    return items;
+    for (const edge of this.store.edges) {
+      // Check if offset overlaps edge rect
+      const edgePoints = this.getEdgePoints(edge);
+      const labelSize = this.drawLabel(edge.name, {
+        offset: edgePoints.mid,
+        textAlign: "center",
+      });
+      const rect = {
+        x: edgePoints.mid.x - labelSize.width / 2,
+        y: edgePoints.mid.y - labelSize.height / 2,
+        width: labelSize.width,
+        height: labelSize.height,
+      };
+      if (
+        localOffset.x >= rect.x &&
+        localOffset.x <= rect.x + rect.width &&
+        localOffset.y >= rect.y &&
+        localOffset.y <= rect.y + rect.height
+      ) {
+        edges.push(edge.id);
+      }
+    }
+    return { nodes, edges };
   }
 
   render() {
@@ -274,15 +314,9 @@ export class Canvas {
 
   private renderLink() {
     if (this.action === Action.LINK) {
-      this.scopedPaint((ctx) => {
-        ctx.beginPath();
-        ctx.strokeStyle = "red";
-        const localStart = this.toWorld(this.start!.x, this.start!.y);
-        const localEnd = this.toWorld(this.end!.x, this.end!.y);
-        ctx.moveTo(localStart.x, localStart.y);
-        ctx.lineTo(localEnd.x, localEnd.y);
-        ctx.stroke();
-      });
+      const localStart = this.toWorld(this.start!.x, this.start!.y);
+      const localEnd = this.toWorld(this.end!.x, this.end!.y);
+      this.drawLine(localStart, localEnd, "red");
     }
   }
 
@@ -307,21 +341,14 @@ export class Canvas {
   }
 
   private renderNode(node: CanvasNode) {
-    this.ctx.save();
+    const { isSelected, isHovered } = this.getNodeStats(node);
 
+    this.ctx.save();
     this.ctx.moveTo(node.x, node.y);
 
-    const isSelected = this.selectedNode()?.id === node.id;
-    const isHovered = this.hoveredNode()?.id === node.id;
-
     // Draw label
-    this.scopedPaint((ctx) => {
-      ctx.translate(node.x, node.y - 5);
-      ctx.font = "12px Arial";
-      ctx.textAlign = "left";
-      ctx.fillStyle = "black";
-      ctx.fillText(node.name, 0, 0);
-    });
+    const labelOffset = { x: node.x, y: node.y - 5 };
+    this.drawLabel(node.name, { offset: labelOffset });
 
     // Draw background
     this.ctx.fillStyle = node?.backgroundColor ?? "white";
@@ -334,35 +361,85 @@ export class Canvas {
   }
 
   private renderEdge(edge: NodeEdge) {
+    const { isSelected, isHovered } = this.getNodeStats(edge);
+    const { start, end, mid } = this.getEdgePoints(edge);
+
+    // Draw line
+    this.drawLine(
+      start,
+      end,
+      isSelected ? "red" : isHovered ? "blue" : "black"
+    );
+
+    // Draw label
+    this.drawLabel(edge.name, { textAlign: "center", offset: mid });
+  }
+
+  private getNodeStats(node: BaseNode) {
+    const selectedItem = this.topSelection();
+    const topHoveredItem = this.topHovered();
+    const sameSelectedType = selectedItem?.type === node.type;
+    const sameHoveredType = topHoveredItem?.type === node.type;
+    const isSelected = sameSelectedType && selectedItem.id === node.id;
+    const isHovered = sameHoveredType && topHoveredItem.id === node.id;
+    return {
+      isSelected,
+      isHovered,
+    };
+  }
+
+  private getEdgePoints(edge: NodeEdge) {
+    const startNode = this.store.retrieveNode(edge.startNode)!;
+    const endNode = this.store.retrieveNode(edge.endNode)!;
+    const start = {
+      x: startNode.x + startNode.width / 2,
+      y: startNode.y + startNode.height / 2,
+      width: startNode.width,
+      height: startNode.height,
+    };
+    const end = {
+      x: endNode.x + endNode.width / 2,
+      y: endNode.y + endNode.height / 2,
+      width: endNode.width,
+      height: endNode.height,
+    };
+    const mid = {
+      x: (start.x + end.x) / 2,
+      y: (start.y + end.y) / 2,
+    };
+    return {
+      start,
+      end,
+      mid,
+    };
+  }
+
+  private drawLine(start: Offset, end: Offset, color: string = "black") {
     this.scopedPaint((ctx) => {
-      const isSelected = this.selectedEdges.includes(edge.id);
-      const startNode = this.store.retrieveNode(edge.startNode)!;
-      const endNode = this.store.retrieveNode(edge.endNode)!;
-      const start = {
-        x: startNode.x + startNode.width / 2,
-        y: startNode.y + startNode.height / 2,
-        width: startNode.width,
-        height: startNode.height,
-      };
-      const end = {
-        x: endNode.x + endNode.width / 2,
-        y: endNode.y + endNode.height / 2,
-        width: endNode.width,
-        height: endNode.height,
-      };
       ctx.beginPath();
-      ctx.strokeStyle = isSelected ? "purple" : "black";
+      ctx.strokeStyle = color;
       ctx.moveTo(start.x, start.y);
-      ctx.bezierCurveTo(
-        start.x + start.width / 2,
-        start.y,
-        end.x - end.width / 2,
-        end.y,
-        end.x,
-        end.y
-      );
+      ctx.lineTo(end.x, end.y);
       ctx.stroke();
     });
+  }
+
+  private drawLabel(name: string, options?: LabelOptions): Size {
+    let metrics: TextMetrics;
+    this.ctx.save();
+    if (options?.offset) {
+      this.ctx.translate(options.offset.x, options.offset.y);
+    }
+    const size = 10;
+    const lineHeight = 1.2;
+    this.ctx.font = `${size}px ${lineHeight}em Arial`;
+    this.ctx.textAlign = options?.textAlign ?? "left";
+    this.ctx.fillStyle = options?.color ?? "black";
+    this.ctx.fillText(name, 0, 0);
+    metrics = this.ctx.measureText(name);
+    this.ctx.restore();
+    const height = size * lineHeight;
+    return { height, width: metrics.width };
   }
 
   private scopedPaint(action: (ctx: CanvasRenderingContext2D) => void) {
@@ -370,6 +447,12 @@ export class Canvas {
     action(this.ctx);
     this.ctx.restore();
   }
+}
+
+interface LabelOptions {
+  offset?: Offset;
+  color?: string;
+  textAlign?: "left" | "center" | "right";
 }
 
 enum Action {
@@ -399,4 +482,5 @@ type PositionMixin = BaseNode & Rect;
  */
 export interface CanvasNode extends PositionMixin {
   backgroundColor?: string;
+  type: "node";
 }
