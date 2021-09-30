@@ -119,9 +119,9 @@ export class Canvas {
 
     // Keyboard Events
     window.addEventListener("keydown", (e) => this.onKeyDown(e));
-    window.addEventListener("mousewheel", (e) => {
-      // e.preventDefault();
-    });
+    // window.addEventListener("mousewheel", (e) => {
+    //   e.preventDefault();
+    // });
     window.addEventListener("DOMMouseScroll", (e) => {
       e.preventDefault();
     });
@@ -725,18 +725,18 @@ function drawLine(
   ctx.stroke();
 }
 
-function renderRect(
-  ctx: CanvasRenderingContext2D,
-  rect: Rect,
-  options?: {
-    color?: string;
-  }
-) {
-  ctx.rect(rect.x, rect.y, rect.width, rect.height);
-  const color = options?.color ?? "red";
-  ctx.fillStyle = color;
-  ctx.fill();
-}
+// function renderRect(
+//   ctx: CanvasRenderingContext2D,
+//   rect: Rect,
+//   options?: {
+//     color?: string;
+//   }
+// ) {
+//   ctx.rect(rect.x, rect.y, rect.width, rect.height);
+//   const color = options?.color ?? "red";
+//   ctx.fillStyle = color;
+//   ctx.fill();
+// }
 
 function isPointOnLine(
   ctx: CanvasRenderingContext2D,
