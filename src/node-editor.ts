@@ -62,7 +62,10 @@ export class NodeEditor extends LitElement {
   }
 
   renderProperties() {
-    const node = this.editor.topSelection();
+    const nodeId = this.editor.selection[this.editor.selection.length - 1];
+    const node =
+      this.editor.store.retrieveNode(nodeId) ??
+      this.editor.store.retrieveEdge(nodeId);
     if (node?.type === "node") {
       return html`
         <span class="title">Node</span>
@@ -219,7 +222,7 @@ export class NodeEditor extends LitElement {
           <button
             @click=${() => {
               const node = this.addRandomNode();
-              this.editor.selectedNodes.push(node.id);
+              this.editor.selection.push(node.id);
               this.requestUpdate();
             }}
           >
