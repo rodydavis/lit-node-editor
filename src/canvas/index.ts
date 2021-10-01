@@ -1,4 +1,17 @@
-import { Store, BaseNode, NodeEdge, ID } from "./store";
+import { Store, BaseNode, NodeEdge, ID } from "../store";
+import { drawLabel } from "./label";
+import { drawLine, getMidPoint, isPointOnLine } from "./line";
+import {
+  applyDefaultMatrix,
+  applyMatrix,
+  createMatrix,
+  defaultMatrix,
+  MatrixContext,
+  matrixInfo,
+  toWorld,
+} from "./matrix";
+import { drawRect } from "./rect";
+import { Offset, Rect, Size } from "./utils";
 
 /**
  * Editor Canvas
@@ -6,20 +19,17 @@ import { Store, BaseNode, NodeEdge, ID } from "./store";
 export class Canvas {
   constructor(props?: { canvas?: HTMLCanvasElement; size?: Size }) {
     this.canvas = props?.canvas ?? document.createElement("canvas");
+    this.ctx = this.canvas.getContext("2d")!;
+    this.ctx.imageSmoothingEnabled = true;
     this.resize(props?.size);
     this.init();
   }
   canvas: HTMLCanvasElement;
   store = new Store<CanvasNode>();
-  offset: Offset = { x: 0, y: 0 };
-  rotation = 0;
-  scale = 1;
   action: Action = Action.NONE;
   start?: Offset;
   end?: Offset;
   selection = new Array<ID>();
-  matrix = [1, 0, 0, 1, 0, 0];
-  invMatrix = [1, 0, 0, 1];
   pointers: Map<number, Offset> = new Map();
   mouse: Offset = { x: 0, y: 0 };
   minScale = 0.1;
@@ -31,14 +41,9 @@ export class Canvas {
   rotationEnabled = true;
   zoomEnabled = true;
   panEnabled = true;
-  movingNodeId?: string;
+  context: MatrixContext = defaultMatrix;
+  ctx: CanvasRenderingContext2D;
   onUpdate = () => {};
-
-  get ctx(): CanvasRenderingContext2D {
-    const ctx = this.canvas.getContext("2d")!;
-    ctx.imageSmoothingEnabled = true;
-    return ctx;
-  }
 
   get size(): Size {
     return {
@@ -48,7 +53,6 @@ export class Canvas {
   }
 
   init() {
-    this.render();
     // Mouse Events
     this.canvas.addEventListener(
       "contextmenu",
@@ -125,6 +129,14 @@ export class Canvas {
     window.addEventListener("DOMMouseScroll", (e) => {
       e.preventDefault();
     });
+
+    this.render();
+    this.onUpdate();
+  }
+
+  render() {
+    this.paint();
+    requestAnimationFrame(() => this.render());
   }
 
   onWheel(e: WheelEvent) {
@@ -154,25 +166,31 @@ export class Canvas {
   onGestureChange(e: GestureEvent) {
     e.preventDefault();
     this.gestureEvents = true;
+    const { scale, offset, rotation } = matrixInfo(this.context);
+    let localRotation = rotation;
+    let localScale = scale;
+    let localOffset = offset;
 
     const rotationDelta = (this.lastRotation - e.rotation) * 0.01;
-    this.rotation -= rotationDelta;
+    localRotation -= rotationDelta;
     this.lastRotation = e.rotation;
 
     const scaleDelta = (this.lastScale - e.scale) * 1;
-    this.scale -= scaleDelta;
+    localScale -= scaleDelta;
     this.lastScale = e.scale;
 
     const offsetDelta = {
       x: (this.lastOffset.x - e.clientX) * 0.01,
       y: (this.lastOffset.y - e.clientY) * 0.01,
     };
-    this.offset.x -= offsetDelta.x * this.scale;
-    this.offset.y -= offsetDelta.y * this.scale;
+    localOffset.x -= offsetDelta.x * localScale;
+    localOffset.y -= offsetDelta.y * localScale;
     this.lastOffset = { x: e.clientX, y: e.clientY };
 
+    this.context = createMatrix(localOffset, localScale, localRotation);
+
     this.onUpdate();
-    this.applyMatrix();
+    applyMatrix(this.ctx, this.context);
   }
 
   onGestureEnd(e: GestureEvent) {
@@ -198,7 +216,11 @@ export class Canvas {
     this.canvas.setPointerCapture(e.pointerId);
     this.start = point;
     this.end = point;
-    const mouseOffset = this.toWorld(point.x, point.y);
+    const mouseOffset = toWorld(this.context, point);
+    if (this.selection.length > 1) {
+      this.action = Action.MOVE;
+      return;
+    }
     const nodes = this.selectOffset(mouseOffset, this.selection, e.shiftKey);
     if (nodes.length === 0) {
       this.selection = [];
@@ -213,7 +235,7 @@ export class Canvas {
     if (nodes.length > 0) {
       const nodeId = nodes[nodes.length - 1];
       if (this.action === Action.MOVE) {
-        this.movingNodeId = nodeId;
+        this.selection = [nodeId];
       }
     }
   }
@@ -229,9 +251,11 @@ export class Canvas {
       };
       this.end = point;
       if (this.action === Action.MOVE) {
-        const node = this.store.retrieveNode(this.movingNodeId!);
-        if (node) {
-          this.moveNode(node, delta);
+        for (const id of this.selection) {
+          const node = this.store.retrieveNode(id);
+          if (node) {
+            this.moveNode(node, delta);
+          }
         }
       }
       this.pointers.set(pointerId, point);
@@ -242,8 +266,8 @@ export class Canvas {
     this.canvas.releasePointerCapture(e.pointerId);
     this.pointers.delete(e.pointerId);
     if (this.start && this.end) {
-      const start = this.toWorld(this.start.x, this.start.y);
-      const end = this.toWorld(this.end.x, this.end.y);
+      const start = toWorld(this.context, this.start);
+      const end = toWorld(this.context, this.end);
       const topLeft = {
         x: Math.min(start.x, end.x),
         y: Math.min(start.y, end.y),
@@ -302,7 +326,6 @@ export class Canvas {
     }
     this.start = undefined;
     this.end = undefined;
-    this.movingNodeId = undefined;
     this.action = Action.NONE;
     this.onUpdate();
   }
@@ -350,23 +373,34 @@ export class Canvas {
     if (e.key === "ArrowRight") {
       this.pan({ x: moveStep, y: 0 });
     }
+
+    // Select all
+    if (e.key === "a" && e.metaKey) {
+      this.selection = this.store.nodes.map((n) => n.id);
+      this.onUpdate();
+    }
   }
 
   zoom(amount: number) {
-    this.scale += amount;
-    if (this.scale <= this.minScale) {
-      this.scale = this.minScale;
-      return;
-    }
-    if (this.scale >= this.maxScale) {
-      this.scale = this.maxScale;
-      return;
-    }
+    const { scale, offset, rotation } = matrixInfo(this.context);
+    let localScale = scale;
+    localScale += amount;
+    this.context = createMatrix(offset, localScale, rotation);
   }
 
   pan(delta: Offset) {
-    this.offset.x += delta.x / this.scale;
-    this.offset.y += delta.y / this.scale;
+    const { offset, scale, rotation } = matrixInfo(this.context);
+    let localOffset = offset;
+    localOffset.x += delta.x / scale;
+    localOffset.y += delta.y / scale;
+    this.context = createMatrix(localOffset, scale, rotation);
+  }
+
+  rotate(amount: number) {
+    const { rotation, offset, scale } = matrixInfo(this.context);
+    let localRotation = rotation;
+    localRotation += amount;
+    this.context = createMatrix(offset, scale, localRotation);
   }
 
   import(value: string) {
@@ -420,11 +454,6 @@ export class Canvas {
         offset.y <= node.y + node.height;
       return overlaps;
     });
-    const overlappedEdges = this.store.edges.filter((edge) => {
-      const { start, end } = this.getEdgePoints(edge);
-      const overlaps = isPointOnLine(this.ctx, start, end, offset);
-      return overlaps;
-    });
 
     // Select nodes
     if (overlappedNodes.length > 0) {
@@ -438,178 +467,188 @@ export class Canvas {
     }
 
     // Select edges
+    const overlappedEdges = this.store.edges.filter((edge) => {
+      const { start, end } = this.getEdgePoints(edge);
+      const overlaps = isPointOnLine(start, end, offset);
+      return overlaps;
+    });
     if (overlappedEdges.length > 0) {
       const topEdge = overlappedEdges[overlappedEdges.length - 1];
       selection.push(topEdge.id);
     }
-    // Return selection
+
     return selection;
   }
 
+  get scale(): number {
+    const { scale } = matrixInfo(this.context);
+    return scale;
+  }
+
+  get rotation(): number {
+    const { rotation } = matrixInfo(this.context);
+    return rotation;
+  }
+
+  get offset(): Offset {
+    const { offset } = matrixInfo(this.context);
+    return offset;
+  }
+
   moveNode(node: CanvasNode, delta: Offset) {
-    node.x += delta.x / this.scale;
-    node.y += delta.y / this.scale;
+    const { scale } = matrixInfo(this.context);
+    node.x += delta.x / scale;
+    node.y += delta.y / scale;
     this.store.updateNode(node);
   }
 
   clear() {
-    this.selection.splice(0, this.selection.length);
+    this.selection = [];
     this.onUpdate();
   }
 
-  render() {
-    this.paint();
-    requestAnimationFrame(() => this.render());
-  }
-
   paint() {
-    this.ctx.setTransform(1, 0, 0, 1, 0, 0);
+    applyDefaultMatrix(this.ctx);
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-    renderBackground(this.ctx, this.canvas.width, this.canvas.height);
-    this.applyMatrix();
-    this.renderEdges();
-    this.renderNodes();
 
-    if (this.start && this.end) {
-      const localStart = this.toWorld(this.start!.x, this.start!.y);
-      const localEnd = this.toWorld(this.end!.x, this.end!.y);
+    drawRect(this.ctx, {
+      x: 0,
+      y: 0,
+      width: this.canvas.width,
+      height: this.canvas.height,
+      fillColor: "whitesmoke",
+    });
 
-      if (this.action == Action.LINK) {
-        // Render line to link
-        drawLine(this.ctx, localStart, localEnd, "red");
-      }
-      if (this.action == Action.MARQUEE) {
-        // Render marquee
-        drawMarquee(this.ctx, localStart, localEnd);
-      }
-    }
-  }
+    applyMatrix(this.ctx, this.context);
 
-  setMatrix(offset: Offset, scale: number, rotation: number) {
-    this.offset = offset;
-    this.scale = scale;
-    this.rotation = rotation;
-    this.applyMatrix();
-  }
-
-  applyMatrix() {
-    const offset = this.panEnabled ? this.offset : { x: 0, y: 0 };
-    const scale = this.zoomEnabled ? this.scale : 1;
-    const rotation = this.rotationEnabled ? this.rotation : 0;
-    const { matrix: m } = this.createMatrix(
-      offset.x,
-      offset.y,
-      scale,
-      rotation
-    );
-    this.ctx.setTransform(m[0], m[1], m[2], m[3], m[4], m[5]);
-  }
-
-  // Pulled from here: https://stackoverflow.com/a/34598847/7303311
-  createMatrix(x: number, y: number, scale: number, rotate: number) {
-    const m = this.matrix;
-    const im = this.invMatrix;
-    m[3] = m[0] = Math.cos(rotate) * scale;
-    m[2] = -(m[1] = Math.sin(rotate) * scale);
-    m[4] = x;
-    m[5] = y;
-    const cross = m[0] * m[3] - m[1] * m[2];
-    im[0] = m[3] / cross;
-    im[1] = -m[1] / cross;
-    im[2] = -m[2] / cross;
-    im[3] = m[0] / cross;
-    return {
-      matrix: this.matrix,
-      invMatrix: this.invMatrix,
-    };
-  }
-
-  // Pulled from here: https://stackoverflow.com/a/34598847/7303311
-  toWorld(x: number, y: number) {
-    let xx, yy, m;
-    m = this.invMatrix;
-    xx = x - this.matrix[4];
-    yy = y - this.matrix[5];
-    return {
-      x: xx * m[0] + yy * m[2],
-      y: xx * m[1] + yy * m[3],
-    };
-  }
-
-  private renderNodes() {
     const mouse = this.mouse;
-    const mouseOffset = this.toWorld(mouse.x, mouse.y);
-    const hoveredNodes = this.store.nodes.filter((node) => {
+    const mouseOffset = toWorld(this.context, mouse);
+
+    // Draw edges
+    for (const edge of this.store.edges) {
+      const isSelected = this.selection.includes(edge.id);
+      const { start, end, mid } = this.getEdgePoints(edge);
+
+      // Draw line
+      const ctx = this.ctx;
+      drawLine(ctx, {
+        start,
+        end,
+        strokeColor: isSelected ? "red" : "black",
+      });
+
+      // Check if point is anywhere on the line
+      const overlaps = isPointOnLine(start, end, mouseOffset);
+      if (overlaps && !isSelected) {
+        ctx.strokeStyle = "blue";
+        ctx.stroke();
+      }
+
+      // Draw label
+      drawLabel(this.ctx, {
+        text: edge.name,
+        textAlign: "center",
+        x: mid.x,
+        y: mid.y,
+        fillColor: "black",
+      });
+    }
+
+    // Draw nodes
+    for (const node of this.store.nodes) {
+      const isSelected = this.selection.includes(node.id);
+
+      const ctx = this.ctx;
+      // Draw label
+      drawLabel(ctx, {
+        text: node.name,
+        x: node.x,
+        y: node.y - 5,
+        fillColor: "black",
+      });
+
+      drawRect(ctx, {
+        x: node.x,
+        y: node.y,
+        width: node.width,
+        height: node.height,
+        strokeColor: isSelected ? "red" : "black",
+        fillColor: "white",
+      });
+
       const overlaps =
         mouseOffset.x >= node.x &&
         mouseOffset.x <= node.x + node.width &&
         mouseOffset.y >= node.y &&
         mouseOffset.y <= node.y + node.height;
-      return overlaps;
-    });
-
-    for (const node of this.store.nodes) {
-      const isSelected = this.selection.includes(node.id);
-      const isHovered = [...hoveredNodes].pop()?.id === node.id ?? false;
-
-      renderCanvasNode(this.ctx, node, {
-        isSelected,
-        isHovered,
-      });
+      if (overlaps && !isSelected) {
+        ctx.strokeStyle = "blue";
+        ctx.strokeRect(node.x, node.y, node.width, node.height);
+      }
     }
-  }
 
-  private renderEdges() {
-    const mouse = this.mouse;
-    const mouseOffset = this.toWorld(mouse.x, mouse.y);
-    const hoveredEdges = this.store.edges.filter((edge) => {
-      const { start, end } = this.getEdgePoints(edge);
-      const overlaps = isPointOnLine(this.ctx, start, end, mouseOffset);
-      return overlaps;
-    });
+    if (this.start && this.end) {
+      const localStart = toWorld(this.context, this.start);
+      const localEnd = toWorld(this.context, this.end);
 
-    for (const edge of this.store.edges) {
-      const isSelected = this.selection.includes(edge.id);
-      const { start, end, mid } = this.getEdgePoints(edge);
-      const isHovered = [...hoveredEdges].pop()?.id === edge.id ?? false;
+      if (this.action == Action.LINK) {
+        // Render line to link
+        drawLine(this.ctx, {
+          start: localStart,
+          end: localEnd,
+          strokeColor: "red",
+        });
+      }
+      if (this.action == Action.MARQUEE) {
+        // Render marquee
+        drawRect(this.ctx, {
+          x: Math.min(localStart.x, localEnd.x),
+          y: Math.min(localStart.y, localEnd.y),
+          width: Math.abs(localStart.x - localEnd.x),
+          height: Math.abs(localStart.y - localEnd.y),
+          fillColor: "rgba(135, 206, 235, 0.2)",
+          strokeColor: "rgba(135, 206, 235, 0.5)",
+        });
+      }
+    }
 
-      // Draw line
-      drawLine(
-        this.ctx,
-        start,
-        end,
-        isSelected ? "red" : isHovered ? "blue" : "black"
+    if (this.selection.length > 1) {
+      const nodes = this.store.nodes.filter((node) =>
+        this.selection.includes(node.id)
       );
+      const topY = Math.min(...nodes.map((node) => node.y));
+      const leftX = Math.min(...nodes.map((node) => node.x));
+      const bottomY = Math.max(...nodes.map((node) => node.y + node.height));
+      const rightX = Math.max(...nodes.map((node) => node.x + node.width));
+      const topLeft: Offset = { x: leftX, y: topY };
+      const bottomRight: Offset = { x: rightX, y: bottomY };
 
-      // Draw label
-      drawLabel(this.ctx, edge.name, { textAlign: "center", offset: mid });
+      if (topLeft && bottomRight) {
+        drawRect(this.ctx, {
+          x: topLeft.x,
+          y: topLeft.y,
+          width: bottomRight.x - topLeft.x,
+          height: bottomRight.y - topLeft.y,
+          fillColor: "transparent",
+          strokeColor: "blue",
+        });
+      }
     }
   }
 
   private getEdgePoints(edge: NodeEdge) {
     const startNode = this.store.retrieveNode(edge.startNode)!;
     const endNode = this.store.retrieveNode(edge.endNode)!;
-    const start = {
-      x: startNode.x + startNode.width / 2,
-      y: startNode.y + startNode.height / 2,
-      width: startNode.width,
-      height: startNode.height,
-    };
-    const end = {
-      x: endNode.x + endNode.width / 2,
-      y: endNode.y + endNode.height / 2,
-      width: endNode.width,
-      height: endNode.height,
-    };
-    const mid = {
-      x: (start.x + end.x) / 2,
-      y: (start.y + end.y) / 2,
-    };
-    return {
-      start,
-      end,
-      mid,
-    };
+    const createOffset = (node: CanvasNode) => ({
+      x: node.x + node.width / 2,
+      y: node.y + node.height / 2,
+      width: node.width,
+      height: node.height,
+    });
+    const start = createOffset(startNode);
+    const end = createOffset(endNode);
+    const mid = getMidPoint(start, end);
+    return { start, end, mid };
   }
 }
 
@@ -622,18 +661,6 @@ enum Action {
   MARQUEE,
 }
 
-interface Offset {
-  x: number;
-  y: number;
-}
-
-interface Size {
-  width: number;
-  height: number;
-}
-
-type Rect = Offset & Size;
-
 type PositionMixin = BaseNode & Rect;
 
 /**
@@ -642,125 +669,6 @@ type PositionMixin = BaseNode & Rect;
 export interface CanvasNode extends PositionMixin {
   backgroundColor?: string;
   type: "node";
-}
-
-function renderCanvasNode(
-  ctx: CanvasRenderingContext2D,
-  node: CanvasNode,
-  options?: {
-    isSelected?: boolean;
-    isHovered?: boolean;
-  }
-) {
-  // Draw label
-  // ctx.moveTo(node.x, node.y - 5);
-  drawLabel(ctx, node.name, {
-    offset: { x: node.x, y: node.y - 5 },
-  });
-
-  // Draw stats
-  // ctx.moveTo(node.x, node.y + node.height + 5);
-  const offset = `(${node.x.toFixed(2)},${node.y.toFixed(2)})`;
-  const size = `${node.width}x${node.height}`;
-  drawLabel(ctx, `${offset} - ${size}`, {
-    offset: { x: node.x, y: node.y + node.height + 10 },
-  });
-
-  // ctx.moveTo(node.x, node.y);
-
-  // Draw background
-  ctx.fillStyle = node?.backgroundColor ?? "white";
-  ctx.fillRect(node.x, node.y, node.width, node.height);
-
-  // Draw outline
-  const isSelected = options?.isSelected ?? false;
-  const isHovered = options?.isHovered ?? false;
-  ctx.strokeStyle = isSelected ? "red" : isHovered ? "blue" : "black";
-  ctx.strokeRect(node.x, node.y, node.width, node.height);
-}
-
-function drawLabel(
-  ctx: CanvasRenderingContext2D,
-  name: string,
-  options?: {
-    color?: string;
-    textAlign?: "left" | "center" | "right";
-    offset?: Offset;
-    maxWidth?: number;
-  }
-): Size {
-  const size = 10;
-  const lineHeight = 1.2;
-  ctx.font = `${size}px ${lineHeight}em Arial`;
-  ctx.textAlign = options?.textAlign ?? "left";
-  ctx.fillStyle = options?.color ?? "black";
-  const x = options?.offset?.x ?? 0;
-  const y = options?.offset?.y ?? 0;
-  const maxWidth = options?.maxWidth ?? undefined;
-  ctx.fillText(name, x, y, maxWidth);
-  const metrics = ctx.measureText(name);
-  const height = size * lineHeight;
-  return { height, width: metrics.width };
-}
-
-function renderBackground(
-  ctx: CanvasRenderingContext2D,
-  width: number,
-  height: number
-) {
-  ctx.fillStyle = "whitesmoke";
-  ctx.fillRect(0, 0, width, height);
-}
-
-function drawLine(
-  ctx: CanvasRenderingContext2D,
-  start: Offset,
-  end: Offset,
-  color: string = "black"
-) {
-  ctx.beginPath();
-  ctx.strokeStyle = color;
-  ctx.moveTo(start.x, start.y);
-  ctx.lineTo(end.x, end.y);
-  ctx.stroke();
-}
-
-// function renderRect(
-//   ctx: CanvasRenderingContext2D,
-//   rect: Rect,
-//   options?: {
-//     color?: string;
-//   }
-// ) {
-//   ctx.rect(rect.x, rect.y, rect.width, rect.height);
-//   const color = options?.color ?? "red";
-//   ctx.fillStyle = color;
-//   ctx.fill();
-// }
-
-function isPointOnLine(
-  ctx: CanvasRenderingContext2D,
-  start: Offset,
-  end: Offset,
-  point: Offset
-) {
-  ctx.beginPath();
-  ctx.strokeStyle = "transparent";
-  ctx.moveTo(start.x, start.y);
-  ctx.lineTo(end.x, end.y);
-  ctx.stroke();
-  return ctx.isPointInStroke(point.x, point.y);
-}
-
-function drawMarquee(
-  ctx: CanvasRenderingContext2D,
-  start: Offset,
-  end: Offset
-) {
-  ctx.beginPath();
-  ctx.fillStyle = "rgba(0, 0, 1, 0.2)";
-  ctx.rect(start.x, start.y, end.x - start.x, end.y - start.y);
-  ctx.fill();
 }
 
 interface GestureEvent extends MouseEvent {

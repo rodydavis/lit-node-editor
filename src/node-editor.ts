@@ -181,7 +181,7 @@ export class NodeEditor extends LitElement {
             .value=${this.editor.scale.toString()}
             step=".1"
             @change=${(e: any) => {
-              this.editor.scale = Number(e.target.value);
+              this.editor.zoom(Number(e.target.value));
             }}
           />
         </div>
@@ -192,7 +192,7 @@ export class NodeEditor extends LitElement {
             .value=${this.editor.rotation.toString()}
             step=".1"
             @change=${(e: any) => {
-              this.editor.rotation = Number(e.target.value);
+              this.editor.rotate(Number(e.target.value));
             }}
           />
         </div>
@@ -203,7 +203,10 @@ export class NodeEditor extends LitElement {
             .value=${this.editor.offset.x.toString()}
             step=".1"
             @change=${(e: any) => {
-              this.editor.offset.x = Number(e.target.value);
+              this.editor.pan({
+                x: Number(e.target.value),
+                y: this.editor.offset.y,
+              });
             }}
           />
         </div>
@@ -214,7 +217,10 @@ export class NodeEditor extends LitElement {
             .value=${this.editor.offset.y.toString()}
             step=".1"
             @change=${(e: any) => {
-              this.editor.offset.y = Number(e.target.value);
+              this.editor.pan({
+                x: this.editor.offset.x,
+                y: Number(e.target.value),
+              });
             }}
           />
         </div>
