@@ -280,7 +280,6 @@ export class Canvas {
         const multi = e.shiftKey;
         const startType = this.checkOffsetType(start, multi);
         const endType = this.checkOffsetType(end, multi);
-        console.log(Action[this.action], multi, startType, endType);
         if (startType === "node" && endType === "node") {
           const startNode = this.getOffset(start, multi) as CanvasNode;
           const endNode = this.getOffset(end, multi) as CanvasNode;
