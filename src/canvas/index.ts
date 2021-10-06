@@ -1,4 +1,6 @@
+import { ReactiveController, ReactiveControllerHost } from "lit";
 import { Store, BaseNode, NodeEdge, ID } from "../store";
+import { BaseTreeNode, TreeView } from "../ui/tree-view";
 import { drawLabel } from "./label";
 import { drawLine, getMidPoint, isPointOnLine } from "./line";
 import {
@@ -16,8 +18,12 @@ import { Offset, Rect, Size } from "./utils";
 /**
  * Editor Canvas
  */
-export class Canvas {
-  constructor(props?: { canvas?: HTMLCanvasElement; size?: Size }) {
+export class Canvas implements ReactiveController {
+  constructor(
+    public host: ReactiveControllerHost,
+    props?: { canvas?: HTMLCanvasElement; size?: Size }
+  ) {
+    this.host.addController(this);
     this.canvas = props?.canvas ?? document.createElement("canvas");
     this.ctx = this.canvas.getContext("2d")!;
     this.ctx.imageSmoothingEnabled = true;
@@ -43,7 +49,18 @@ export class Canvas {
   panEnabled = true;
   context: MatrixContext = defaultMatrix;
   ctx: CanvasRenderingContext2D;
-  onUpdate = () => {};
+
+  hostConnected() {}
+
+  hostDisconnected() {}
+
+  nodeTree(): TreeView {
+    return {
+      children: this.store.nodes.map(
+        (n) => subTreeForNode(n, this.store, !this.selection.includes(n.id))!
+      ),
+    };
+  }
 
   get size(): Size {
     return {
@@ -130,8 +147,10 @@ export class Canvas {
       e.preventDefault();
     });
 
+    // TODO: https://github.com/shuding/apple-pencil-safari-api-test
+
     this.render();
-    this.onUpdate();
+    this.host.requestUpdate();
   }
 
   render() {
@@ -151,7 +170,7 @@ export class Canvas {
       const offset = { x: -e.deltaX * 2, y: -e.deltaY * 2 };
       this.pan(offset);
     }
-    this.onUpdate();
+    this.host.requestUpdate();
     this.action = Action.NONE;
   }
 
@@ -189,7 +208,7 @@ export class Canvas {
 
     this.context = createMatrix(localOffset, localScale, localRotation);
 
-    this.onUpdate();
+    this.host.requestUpdate();
     applyMatrix(this.ctx, this.context);
   }
 
@@ -224,7 +243,7 @@ export class Canvas {
     const nodes = this.selectOffset(mouseOffset, this.selection, e.shiftKey);
     if (nodes.length === 0) {
       this.selection = [];
-      this.onUpdate();
+      this.host.requestUpdate();
     }
     this.action =
       nodes.length > 0
@@ -320,13 +339,13 @@ export class Canvas {
         }
       } else {
         this.selection = this.selectOffset(end, this.selection, e.shiftKey);
-        this.onUpdate();
+        this.host.requestUpdate();
       }
     }
     this.start = undefined;
     this.end = undefined;
     this.action = Action.NONE;
-    this.onUpdate();
+    this.host.requestUpdate();
   }
 
   getOffset(offset: Offset, multi: boolean): CanvasNode | undefined {
@@ -376,7 +395,7 @@ export class Canvas {
     // Select all
     if (e.key === "a" && e.metaKey) {
       this.selection = this.store.nodes.map((n) => n.id);
-      this.onUpdate();
+      this.host.requestUpdate();
     }
   }
 
@@ -409,13 +428,13 @@ export class Canvas {
   deleteNode(node: CanvasNode) {
     this.store.deleteNode(node.id);
     this.clear();
-    this.onUpdate();
+    this.host.requestUpdate();
   }
 
   deleteEdge(edge: NodeEdge) {
     this.store.deleteEdge(edge.id);
     this.clear();
-    this.onUpdate();
+    this.host.requestUpdate();
   }
 
   resize(size?: Size) {
@@ -436,7 +455,7 @@ export class Canvas {
       if (edge) this.store.deleteEdge(edge.id);
     }
     this.selection = [];
-    this.onUpdate();
+    this.host.requestUpdate();
   }
 
   selectOffset(offset: Offset, nodes: string[], multi: boolean) {
@@ -503,7 +522,7 @@ export class Canvas {
 
   clear() {
     this.selection = [];
-    this.onUpdate();
+    this.host.requestUpdate();
   }
 
   paint() {
@@ -673,4 +692,43 @@ export interface CanvasNode extends PositionMixin {
 interface GestureEvent extends MouseEvent {
   rotation: number;
   scale: number;
+}
+
+function subTreeForNode(
+  node: CanvasNode,
+  store: Store<CanvasNode>,
+  collapsed: boolean = false,
+  lookup: Map<string, boolean> = new Map()
+): BaseTreeNode | null {
+  if (lookup.has(node.id)) {
+    return null;
+  }
+  lookup.set(node.id, true);
+
+  const children: BaseTreeNode[] = [];
+  const edges = store.retrieveEdgesForNode(node.id);
+  for (const edge of edges) {
+    const edgeChildren: BaseTreeNode[] = [];
+
+    const endNode = store.retrieveNode(edge.endNode)!;
+    const endSubTree = subTreeForNode(endNode, store, collapsed, lookup);
+    if (endSubTree) edgeChildren.push(endSubTree);
+
+    const startNode = store.retrieveNode(edge.startNode)!;
+    const startSubTree = subTreeForNode(startNode, store, collapsed, lookup);
+    if (startSubTree) edgeChildren.push(startSubTree);
+
+    children.push({
+      id: edge.id,
+      name: edge.name,
+      children: edgeChildren,
+      collapsed: false,
+    });
+  }
+  return {
+    id: node.id,
+    name: node.name,
+    children,
+    collapsed: collapsed,
+  };
 }

@@ -4,58 +4,74 @@ import { html, css, LitElement } from "lit";
 import { customElement } from "lit/decorators.js";
 
 import { CanvasNode, Canvas } from "./canvas";
+import { BaseTreeNode, TreeView, treeView } from "./ui/tree-view";
 
 const PROPERTY_WIDTH = 200;
 
 @customElement("node-editor")
 export class NodeEditor extends LitElement {
-  editor = new Canvas({
+  editor = new Canvas(this, {
     size: {
-      width: window.innerWidth - PROPERTY_WIDTH,
+      width: window.innerWidth - PROPERTY_WIDTH * 2,
       height: window.innerHeight,
     },
   });
 
-  static styles = css`
-    main {
-      height: 100vh;
-      width: 100%;
-      display: flex;
-      flex-direction: row;
-    }
-    #output {
-      flex: 1;
-    }
-    #properties {
-      width: ${PROPERTY_WIDTH}px;
-      display: flex;
-      flex-direction: column;
-      overflow-y: scroll;
-      background-color: #eee;
-    }
-    .property {
-      display: flex;
-      flex-direction: column;
-      padding: 10px;
-    }
-    .title {
-      font-size: 1.5em;
-      font-weight: bold;
-      padding: 10px;
-    }
-    .destructive {
-      background-color: red;
-      color: white;
-    }
-    #links > span {
-      padding-left: 10px;
-      font-size: 0.9em;
-      font-weight: bold;
-    }
-  `;
+  static styles = [
+    treeView.styles,
+    css`
+      main {
+        height: 100vh;
+        width: 100%;
+        display: flex;
+        flex-direction: row;
+      }
+      #output {
+        flex: 1;
+      }
+      .sidebar {
+        width: ${PROPERTY_WIDTH}px;
+      }
+      #properties {
+        width: ${PROPERTY_WIDTH}px;
+        display: flex;
+        flex-direction: column;
+        overflow-y: scroll;
+        background-color: #eee;
+      }
+      .property {
+        display: flex;
+        flex-direction: column;
+        padding: 10px;
+      }
+      .title {
+        font-size: 1.5em;
+        font-weight: bold;
+        padding: 10px;
+      }
+      .destructive {
+        background-color: red;
+        color: white;
+      }
+      #links > span {
+        padding-left: 10px;
+        font-size: 0.9em;
+        font-weight: bold;
+      }
+    `,
+  ];
 
   render() {
     return html`<main>
+      <div class="sidebar">
+        ${treeView.template({
+          treeView: this.editor.nodeTree(),
+          onUpdate: () => this.requestUpdate(),
+          onSelect: (node: BaseTreeNode) => {
+            this.editor.selection.push(node.id);
+          },
+        })}
+      </div>
       <div id="output">${this.editor.canvas}</div>
       <div id="properties">${this.renderProperties()}</div>
     </main>`;
@@ -267,10 +283,6 @@ export class NodeEditor extends LitElement {
       const target: CanvasNode = this.editor.store.nodes[i + amount / 2];
       this.editor.store.linkNodes(source, target, "simple");
     }
-
-    this.editor.onUpdate = () => {
-      this.requestUpdate();
-    };
 
     window.addEventListener("resize", () => {
       this.editor.resize({
