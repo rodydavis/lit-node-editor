@@ -1,6 +1,6 @@
 import { ReactiveController, ReactiveControllerHost } from "lit";
 import { Store, BaseNode, NodeEdge, ID } from "../store";
-import { BaseTreeNode, TreeView } from "../ui/tree-view";
+import { BaseTreeNode, Tree } from "../ui/tree-view";
 import { drawLabel } from "./label";
 import { drawLine, getMidPoint, isPointOnLine } from "./line";
 import {
@@ -54,7 +54,7 @@ export class Canvas implements ReactiveController {
 
   hostDisconnected() {}
 
-  nodeTree(): TreeView {
+  nodeTree(): Tree {
     return {
       children: this.store.nodes.map(
         (n) => subTreeForNode(n, this.store, !this.selection.includes(n.id))!

@@ -4,7 +4,7 @@ import { html, css, LitElement } from "lit";
 import { customElement } from "lit/decorators.js";
 
 import { CanvasNode, Canvas } from "./canvas";
-import { BaseTreeNode, treeView } from "./ui/tree-view";
+import { BaseTreeNode, styles as treeStyles, template as treeTemplate } from "./ui/tree-view";
 
 const PROPERTY_WIDTH = 200;
 
@@ -18,7 +18,7 @@ export class NodeEditor extends LitElement {
   });
 
   static styles = [
-    treeView.styles,
+    treeStyles,
     css`
       main {
         height: 100vh;
@@ -64,8 +64,8 @@ export class NodeEditor extends LitElement {
   render() {
     return html`<main>
       <div class="sidebar">
-        ${treeView.template({
-          treeView: this.editor.nodeTree(),
+        ${treeTemplate({
+          tree: this.editor.nodeTree(),
           onUpdate: () => this.requestUpdate(),
           onSelect: (node: BaseTreeNode) => {
             this.editor.selection.push(node.id);
